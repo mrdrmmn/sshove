@@ -1,0 +1,164 @@
+#! /bin/sh
+
+script_path=`realpath "$0"`;
+argc=$#;
+argv=$*;
+
+# Make sure we won't exit automatically on errors.
+set +e;
+
+# Create a readonly variable with the name of this programs so that we can
+# easily rename it it will.
+readonly program='sshove';
+
+# If we can't stat $script_path, it must have come from $PATH.  Let's find
+# where we live.
+if ! [ -x "${script_path}" ]; then
+  script_path=`which "${script_path}"`;
+fi;
+script_dir=`dirname "${script_path}"`;
+prefix=`dirname "${script_dir}"`;
+
+# Locate $config_base and load our config file.
+for dir in ~/.ssh ~/.config ~/etc "${prefix}/etc"; do
+  dir="${dir}/.${program}";
+  if [ -d "${dir}" ]; then
+    if [ -r "${dir}/${program}.conf" ]; then
+      . "${dir}/${program}.conf";
+    fi;
+
+    if [ -w "${dir}" ]; then
+      config_base=${config_base:-${dir}};
+    fi;
+  fi;
+done;
+
+# Apply our defaults if a value was not found in the config file.
+ssh_command=${ssh_command:-'ssh'};
+source_path=~;
+rsync_command=${rsync_command:-'rsync'};
+rsync_logfile=${rsync_logfile:-"${config_base}/rsync.log"};
+rsync_options=${rsync_options:-'-auq'};
+include_file=${include_file:-"${config_base}/rsync.include"};
+exclude_file=${exclude_file:-"${config_base}/rsync.exclude"};
+rsyncd_config=${rsyncd_config:-"${config_base}/rsyncd.conf"};
+rsyncd_passwd=${rsyncd_passwd:-"${config_base}/rsyncd.passwd"};
+rsyncd_pidfile=${rsyncd_pidfile:-"${config_base}/rsyncd.pid"};
+rsyncd_port=${rsyncd_port:-'1897'};
+rsyncd_user=${rsyncd_user:-`tr -cd a-fA-F0-9 < /dev/urandom | head -c 8`};
+rsyncd_pass=${rsyncd_pass:-`tr -cd a-fA-F0-9 < /dev/urandom | head -c 8`};
+ssh_control=${ssh_control:-"${config_base}/control"};
+rsync_filter=${rsync_filter:-"${config_base}/rsync.filter"};
+
+# Set some additional vars now.
+space=" ";
+tab="	";
+newline="
+";
+
+pid=$$;
+os=`uname -o`;
+IFS_default="${IFS}";
+
+# If we have anything other than exactly 1 argument, then just call ssh as we
+# we don't know what arguments might be necessary to preform our rsync.
+if [ "${argc}" != '1' ]; then
+  exec "${ssh_command}" ${argv};
+  exit 0;
+fi;
+
+# Generate our system filters.  We always exclude the files that we
+# generate dynamically.
+filters='';
+base=`realpath "${source_path}"`;
+for name in rsyncd_pidfile rsyncd_config rsyncd_passwd rsync_filter; do
+  eval value=\$$name;
+  value=`realpath "${value}"`;
+  value="${value#${base}}";
+  filters="${filters}- ${value}${newline}";
+done
+
+# We always need to include our $ssh_control directory, but exclude
+# everything inside the directory.
+value=`realpath "${ssh_control}"`;
+value="${value#${base}}";
+filters="${filters}+ ${value}${newline}";
+filters="${filters}- ${value}/*${newline}";
+
+# Create our _filters files
+echo "${filters}" > "${rsync_filter}" 2>/dev/null;
+
+case "${os}" in
+  # cygwin is a special case because multiplexing does not work.
+  [Cc][Yy][Gg][Ww][Ii][Nn])
+    # Start out by adding the rsync_filter file.
+    filters='';
+    if [ -r "${rsync_filter}" ]; then
+      filters="  filter = . ${rsync_filter}";
+    fi;
+
+    # Now we add in our customer include and exclude files if they are defined.
+    if [ -r "${include_file}" ]; then
+      filters="${filters}${newline}  include from = ${include_file}";
+    fi;
+    if [ -r "${exclude_file}" ]; then
+      filters="${filters}${newline}  exclude from = ${exclude_file}";
+    fi;   
+    
+    # Finally, add in a default exclude.
+    filters="${filters}${newline}  exclude = /*";
+    
+    # Create our rsyncd configuration/
+    cat << __EOF__ > "${rsyncd_config}";
+address = 127.0.0.1
+use chroot = yes
+max connections = 1
+pid file = ${rsyncd_pidfile}
+
+[${program}]
+  path = ${source_path}
+  list = false
+  read only = yes
+  auth users = ${rsyncd_user}
+  secrets file = ${rsyncd_passwd}
+${filters}
+  post-xfer exec = kill \`cat "${rsyncd_pidfile}"\`
+__EOF__
+
+    # Make sure our passwd file is up to date and secure.
+    echo "${rsyncd_user}:${rsyncd_pass}" > "${rsyncd_passwd}";
+    chmod 600 "${rsyncd_passwd}";
+
+    "${ssh_command}" -o PermitLocalCommand=yes -o LocalCommand="RSYNC_PASSWORD='${rsyncd_pass}' '${rsync_command}' --daemon --config='${rsyncd_config}' --port='${rsyncd_port}'" -R "127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}" -t $argv 'RSYNC_PASSWORD="'${rsyncd_pass}'" rsync '${rsync_options}' rsync://'${rsyncd_user}'@127.0.0.1:'${rsyncd_port}'/'${program}'/ ./ & exec "${SHELL}" -l';
+  ;;
+
+  *)
+    # Start out by adding the rsync_filter file.
+    filters='';
+    if [ -r "${rsync_filter}" ]; then
+      filters="--filter='. ${rsync_filter}'";
+    fi;
+
+    # Now we add in our customer include and exclude files if they are defined.
+    if [ -r "${include_file}" ]; then
+      filters="${filters} --include-from='${include_file}'";
+    fi;
+    if [ -r "${exclude_file}" ]; then
+      filters="${filters} --exclude-from='${exclude_file}'";
+    fi;   
+    
+    # Finally, add in a default exclude.
+    filters="${filters} --exclude='/*'";
+
+    # Create our control directory if needed.
+    if ! [ -d "${ssh_control}" ]; then
+      mkdir -m 700 "${ssh_control}"
+    fi;
+
+    # Set up a host specific contol file.
+    control="${ssh_control}/%r@%n";
+
+    echo "${ssh_command}" -o ControlMaster=auto -o ControlPath="${control}" -o PermitLocalCommand=yes -o LocalCommand="${rsync_command} ${rsync_options} ${filters} --rsh '${ssh_command} -o ControlPath=\"${control}\"' ./ '%r@%n:./' &" $argv;
+    "${ssh_command}" -o ControlMaster=auto -o ControlPath="${control}" -o PermitLocalCommand=yes -o LocalCommand="${rsync_command} ${rsync_options} ${filters} --rsh '${ssh_command} -o ControlPath=\"${control}\"' ./ '%r@%n:./' &" $argv;
+  ;;
+esac;
