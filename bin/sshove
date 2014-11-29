@@ -1,5 +1,9 @@
 #! /bin/sh
 
+realpath() {
+        [[ $1 = /* ]] && echo "$1" || echo "$PWD/${1#./}"
+}
+
 script_path=`realpath "$0"`;
 argc=$#;
 argv=$*;
@@ -46,8 +50,8 @@ rsyncd_config=${rsyncd_config:-"${tmpdir}/rsyncd.conf"};
 rsyncd_passwd=${rsyncd_passwd:-"${tmpdir}/rsyncd.passwd"};
 rsyncd_pidfile=${rsyncd_pidfile:-"${tmpdir}/rsyncd.pid"};
 rsyncd_port=${rsyncd_port:-'1897'};
-rsyncd_user=${rsyncd_user:-`tr -cd a-fA-F0-9 < /dev/urandom | head -c 8`};
-rsyncd_pass=${rsyncd_pass:-`tr -cd a-fA-F0-9 < /dev/urandom | head -c 8`};
+rsyncd_user=${rsyncd_user:-`LC_CTYPE=C tr -cd a-fA-F0-9 < /dev/urandom | head -c 8`};
+rsyncd_pass=${rsyncd_pass:-`LC_CTYPE=C tr -cd a-fA-F0-9 < /dev/urandom | head -c 8`};
 rsync_filter=${rsync_filter:-"${tmpdir}/rsync.filter"};
 
 # Set some additional vars now.
@@ -157,3 +161,5 @@ __EOF__
     "${ssh_command}" -o ControlMaster=auto -o ControlPath="${control}" -o PermitLocalCommand=yes -o LocalCommand="${rsync_command} ${rsync_options} ${filters} --rsh '${ssh_command} -o ControlPath=\"${control}\"' ./ '%r@%n:./' &" $argv;
   ;;
 esac;
+
+
