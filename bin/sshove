@@ -78,10 +78,11 @@ rsyncd_port=${rsyncd_port:-'1897'};
 rsyncd_user=${rsyncd_user:-`tr -cd a-fA-F0-9 < /dev/urandom | head -c 8`};
 rsyncd_pass=${rsyncd_pass:-`tr -cd a-fA-F0-9 < /dev/urandom | head -c 8`};
 rsync_filter=${rsync_filter:-"${tmpdir}/rsync.filter"};
+rsync_dirfilter=${rsync_dirfilter:=".${program}.filter"};
 
 # Set some additional vars now.
 pid=$$;
-uname=`uname`;
+uname=`uname 2>/dev/null || echo "unknown"`;
 
 # If we have anything other than exactly 1 argument, then just call ssh as we
 # we don't know what arguments might be necessary to preform our rsync.
@@ -95,13 +96,12 @@ if ! [ -d "${tmpdir}" ]; then
   mkdir -m 700 "${tmpdir}"
 fi;
 
-# Generate our system filters.  Exclude our $tmpdir
-filters='- ${tmpdir}';
+# Generate our system filters. Start by defining a per-directory filter file.
+filters="dir-merge ${rsync_dirfiler}";
 
-# We always exclude the files that we generate dynamically.
-filters='';
+# We always exclude our tmp directory and files.
 base=`realpath "${source_path}"`;
-for name in rsyncd_pidfile rsyncd_config rsyncd_passwd rsync_filter; do
+for name in tmpdir rsyncd_pidfile rsyncd_config rsyncd_passwd rsync_filter; do
   eval value=\$$name;
   value=`realpath "${value}"`;
   value="${value#${base}}";
