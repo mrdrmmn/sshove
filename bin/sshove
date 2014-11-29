@@ -20,6 +20,10 @@ readonly IFS_default="${IFS}";
 # Set IFS just to make sure that it is sane.
 IFS="${IFS_default}";
 
+# Set $LC_CTYPE to something sane if it is not already defined as tr complains
+# on OSX if it is not set.
+LC_CTYPE=${LC_CTYPE:-'C'};
+
 # Create our own 'realpath' command to work around the absence of 'realpath'
 # on some systems like OSX.
 realpath() {
