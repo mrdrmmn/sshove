@@ -70,8 +70,8 @@ source_path=~;
 rsync_command=${rsync_command:-'rsync'};
 rsync_logfile=${rsync_logfile:-"${tmpdir}/rsync.log"};
 rsync_options=${rsync_options:-'-auq'};
-include_file=${include_file:-"${config_base}/rsync.include"};
-exclude_file=${exclude_file:-"${config_base}/rsync.exclude"};
+include_file=${include_file:-"${config_base}/include"};
+exclude_file=${exclude_file:-"${config_base}/exclude"};
 rsyncd_config=${rsyncd_config:-"${tmpdir}/rsyncd.conf"};
 rsyncd_passwd=${rsyncd_passwd:-"${tmpdir}/rsyncd.passwd"};
 rsyncd_pidfile=${rsyncd_pidfile:-"${tmpdir}/rsyncd.pid"};
@@ -182,7 +182,6 @@ __EOF__
     # Set up a host specific contol file.
     control="${tmpdir}/%r@%n-${pid}.sock";
 
-    echo "${ssh_command}" -o ControlMaster=auto -o ControlPath="${control}" -o PermitLocalCommand=yes -o LocalCommand="${rsync_command} ${rsync_options} ${filters} --rsh '${ssh_command} -o ControlPath=\"${control}\"' ./ '%r@%n:./' &" $argv;
     "${ssh_command}" -o ControlMaster=auto -o ControlPath="${control}" -o PermitLocalCommand=yes -o LocalCommand="${rsync_command} ${rsync_options} ${filters} --rsh '${ssh_command} -o ControlPath=\"${control}\"' ./ '%r@%n:./' &" $argv;
   ;;
 esac;
