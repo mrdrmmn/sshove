@@ -34,7 +34,7 @@ realpath() {
     dir=`pwd`;
   fi;
 
-  echo "${dir}/${name}";
+  eval echo "${dir}/${name}";
 }
 
 # If we can't stat $script_path, it must have come from $PATH.  Let's find
@@ -61,6 +61,7 @@ for dir in ~/.ssh ~/etc "${prefix}/etc"; do
     fi;
   fi;
 done;
+config_base=${config_base:-"~/.ssh/${program}"};
 
 # Apply our defaults if a value was not found in the config file.
 ssh_command=${ssh_command:-'ssh'};
@@ -91,12 +92,17 @@ if [ "${argc}" != '1' ]; then
   exit 0;
 fi;
 
-# Make sure our tmpdir exists. 
-if ! [ -d "${tmpdir}" ]; then
-  mkdir -m 700 "${tmpdir}"
-fi;
+# Make sure our $config_base and $tmpdir exist. 
+for dir in "${config_base}" "${tmpdir}"; do
+  if ! [ -d "${dir}" ]; then
+    dir=`realpath "${dir}"`;
+    if ! mkdir -m 700 "${dir}"; then
+      echo "error: '${dir}' does not exist and could not be created" >&2;
+    fi;
+  fi;
+done;
 
-# Generate our system filters. Start by defining a per-directory filter file.
+# Generate our system filters. Start by defining out per-directory filter file.
 filters="dir-merge ${rsync_dirfiler}";
 
 # We always exclude our tmp directory and files.
