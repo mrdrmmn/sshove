@@ -31,8 +31,8 @@ LC_CTYPE=${LC_CTYPE:-'C'};
 # Create our own 'realpath' command to work around the absence of 'realpath'
 # on some systems like OSX.
 realpath() {
-  my_name=`basename "${1}"`;
-  my_dir=`dirname "${1}"`;
+  my_name=${1##*/};
+  my_dir=${1%/*};
 
   if cd "${my_dir}" 2>/dev/null; then
     my_dir=`pwd`;
@@ -59,9 +59,9 @@ if ! [ -x "${script}" ]; then
 else
   script_path=`realpath "${script}"`;
 fi;
-script_dir=`dirname "${script_path}"`;
-script_name=`basename "${script_path}"`;
-prefix=`dirname "${script_dir}"`;
+script_dir=${script_path%/*};
+script_name=${script_path##*/};
+prefix=${script_dir%/*};
 
 # Locate $config_base and load our config file.
 for dir in ~/.ssh ~/etc "${prefix}/etc"; do
