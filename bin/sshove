@@ -16,7 +16,7 @@ readonly tab='	';
 readonly newline='
 ';
 readonly pid=$$;
-readonly IFS_default="${IFS}";
+readonly IFS_default="${space}${tab}${newline}";
 readonly upper='ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 readonly lower='abcdefghijklmnopqrstuvwxyz';
 readonly number='0123456789';
