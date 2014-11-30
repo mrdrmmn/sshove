@@ -28,17 +28,35 @@ IFS="${IFS_default}";
 # on OSX if it is not set.
 LC_CTYPE=${LC_CTYPE:-'C'};
 
-# Create our own 'realpath' command to work around the absence of 'realpath'
-# on some systems like OSX.
-realpath() {
-  my_name=${1##*/};
-  my_dir=${1%/*};
+# rpath provides the same basic function as the realpath command, but with a
+# few benefits:
+#   realpath does not exist on some systems (Mac OSX).
+#   rpath is 100 times faster becuase we never spawn a subshell. :)
+rpath() {
+  # This is the name of the variable where we get our data.
+  rpath_src=${1};
 
-  if cd "${my_dir}" 2>/dev/null; then
-    my_dir=`pwd`;
+  # This is the name of the variable where we put our data.  If a second
+  # argument was not provided, we will update the the source variable.
+  rpath_dst=${2:-${1}};
+
+  # Grab the value from our source.
+  eval rpath_value=\$${rpath_src};
+
+  # Eval it again to allow shell expansion to occur (~ becomes /home/user).
+  eval rpath_value=${rpath_value};
+
+  rpath_name=${rpath_value##*/};
+  rpath_dir=${rpath_value%/*};
+  
+  if cd "${rpath_dir}"; then
+    # We know the real path.
+    eval $rpath_dst=${rpath_dir}/${rpath_name};
+  else
+    # We couldn't determine the real path, so we use the shell expanded value
+    # which is what the realpath binary does.
+    eval $rpath_dst=$prath_value;
   fi;
-
-  eval echo "${my_dir}/${my_name}";
 }
 
 # Create a generic function to generate a pseudo random string.  The default
@@ -57,7 +75,7 @@ randstr() {
 if ! [ -x "${script}" ]; then
   script_path=`which "${script}"`;
 else
-  script_path=`realpath "${script}"`;
+  rpath script script_path;
 fi;
 script_dir=${script_path%/*};
 script_name=${script_path##*/};
@@ -76,7 +94,8 @@ for dir in ~/.ssh ~/etc "${prefix}/etc"; do
     fi;
   fi;
 done;
-config_base=${config_base:-`realpath ~/.ssh/${program}`};
+config_base=${config_base:-"~/.ssh/${program}"};
+rpath config_base;
 
 # Apply our defaults if a value was not found in the config file.
 ssh_command=${ssh_command:-'ssh'};
@@ -96,7 +115,6 @@ rsyncd_pass=${rsyncd_pass:-`randstr`};
 rsync_filter=${rsync_filter:-"${tmpdir}/rsync.filter"};
 rsync_dirfilter=${rsync_dirfilter:-".${program}.filter"};
 
-
 # If we have anything other than exactly 1 argument, then just call ssh as we
 # we don't know what arguments might be necessary to preform our rsync.
 if [ "${argc}" != '1' ]; then
@@ -105,8 +123,8 @@ if [ "${argc}" != '1' ]; then
 fi;
 
 # Make sure our $config_base and $tmpdir exist. 
-for dir in "${config_base}" "${tmpdir}"; do
-  dir=`realpath "${dir}"`;
+for var in config_base tmpdir; do
+  rpath $var dir;
   if ! [ -d "${dir}" ]; then
     if ! mkdir -m 700 "${dir}"; then
       echo "error: '${dir}' does not exist and could not be created" >&2;
@@ -118,11 +136,12 @@ done;
 filters="dir-merge ${rsync_dirfilter}${newline}";
 
 # We always exclude our tmp directory and files.
-base=`realpath "${source_path}"`;
+rpath source_path base;
 for name in tmpdir rsyncd_pidfile rsyncd_config rsyncd_passwd rsync_filter; do
-  eval value=\$$name;
-  value=`realpath "${value}"`;
-  value="${value#${base}}";
+  # Get the rpath and the strip off our prefix.
+  rpath $name value; value="${value#${base}}";
+
+  # Add this to our excludes.
   filters="${filters}- ${value}${newline}";
 done
 
