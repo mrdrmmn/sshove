@@ -11,11 +11,15 @@ set +e;
 # Create a readonly variable with the name of this programs so that we can
 # easily rename it it will.
 readonly program='sshove';
-readonly space=" ";
-readonly tab="	";
-readonly newline="
-";
+readonly space=' ';
+readonly tab='	';
+readonly newline='
+';
+readonly pid=$$;
 readonly IFS_default="${IFS}";
+readonly upper='ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+readonly lower='abcdefghijklmnopqrstuvwxyz';
+readonly number='0123456789';
 
 # Set IFS just to make sure that it is sane.
 IFS="${IFS_default}";
@@ -27,14 +31,25 @@ LC_CTYPE=${LC_CTYPE:-'C'};
 # Create our own 'realpath' command to work around the absence of 'realpath'
 # on some systems like OSX.
 realpath() {
-  local name=`basename "${1}"`;
-  local dir=`dirname "${1}"`;
+  my_name=`basename "${1}"`;
+  my_dir=`dirname "${1}"`;
 
-  if cd "${dir}" 2>/dev/null; then
-    dir=`pwd`;
+  if cd "${my_dir}" 2>/dev/null; then
+    my_dir=`pwd`;
   fi;
 
-  eval echo "${dir}/${name}";
+  eval echo "${my_dir}/${my_name}";
+}
+
+# Create a generic function to generate a pseudo random string.  The default
+# solaris tr doesn't seem to support charater sets, so all charaters must be
+# manually listed out.  It also freaks out with many binary charaters, so we
+# limit the input with strings.
+randstr() {
+  strings < /dev/urandom | \
+  tr -cd "${upper}${lower}${number}" | \
+  dd count=1 bs=8 2>/dev/null;
+  echo;
 }
 
 # If we can't stat $script_path, it must have come from $PATH.  Let's find
@@ -76,14 +91,11 @@ rsyncd_config=${rsyncd_config:-"${tmpdir}/rsyncd.conf"};
 rsyncd_passwd=${rsyncd_passwd:-"${tmpdir}/rsyncd.passwd"};
 rsyncd_pidfile=${rsyncd_pidfile:-"${tmpdir}/rsyncd.pid"};
 rsyncd_port=${rsyncd_port:-'1897'};
-rsyncd_user=${rsyncd_user:-`tr -cd a-fA-F0-9 < /dev/urandom | head -c 8`};
-rsyncd_pass=${rsyncd_pass:-`tr -cd a-fA-F0-9 < /dev/urandom | head -c 8`};
+rsyncd_user=${rsyncd_user:-`randstr`};
+rsyncd_pass=${rsyncd_pass:-`randstr`};
 rsync_filter=${rsync_filter:-"${tmpdir}/rsync.filter"};
 rsync_dirfilter=${rsync_dirfilter:-".${program}.filter"};
 
-# Set some additional vars now.
-pid=$$;
-uname=`uname 2>/dev/null || echo "unknown"`;
 
 # If we have anything other than exactly 1 argument, then just call ssh as we
 # we don't know what arguments might be necessary to preform our rsync.
@@ -117,9 +129,22 @@ done
 # Create our _filters files
 echo "${filters}" > "${rsync_filter}" 2>/dev/null;
 
-case "${uname}" in
+case "`uname`" in
   # cygwin is a special case because multiplexing does not work.
   [Cc][Yy][Gg][Ww][Ii][Nn]*)
+    mode=simple;
+  ;;
+esac;
+
+case "`${ssh_command} -V 2>&1`" in
+  # Sun SSH does not support multiplexing
+  [Ss][Uu][Nn]*)
+    mode=simple;
+  ;;
+esac;
+  
+case "${mode}" in
+  [Ss][Ii][Mm][Pp][Ll][Ee])
     # Start out by adding the rsync_filter file.
     filters='';
     if [ -r "${rsync_filter}" ]; then
@@ -158,7 +183,11 @@ __EOF__
     echo "${rsyncd_user}:${rsyncd_pass}" > "${rsyncd_passwd}";
     chmod 600 "${rsyncd_passwd}";
 
-    "${ssh_command}" -o PermitLocalCommand=yes -o LocalCommand="RSYNC_PASSWORD='${rsyncd_pass}' '${rsync_command}' --daemon --config='${rsyncd_config}' --port='${rsyncd_port}'" -R "127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}" -t $argv 'RSYNC_PASSWORD="'${rsyncd_pass}'" rsync '${rsync_options}' rsync://'${rsyncd_user}'@127.0.0.1:'${rsyncd_port}'/'${program}'/ ./ & exec "${SHELL}" -l';
+    # Fire up rsync in daemon mode.
+    "${rsync_command}" --daemon --config="${rsyncd_config}" \
+    --port="${rsyncd_port}";
+
+    "${ssh_command}" -R "127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}" -t $argv 'RSYNC_PASSWORD="'${rsyncd_pass}'" rsync '${rsync_options}' rsync://'${rsyncd_user}'@127.0.0.1:'${rsyncd_port}'/'${program}'/ ./ & exec "${SHELL}" -l';
   ;;
 
   *)
