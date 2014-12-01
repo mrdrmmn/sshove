@@ -272,8 +272,8 @@ __EOF__
     filters="${filters} --exclude='/*'";
 
     # Set up a host specific contol file.
-    control="${tmpdir}/%r@%n-${pid}.sock";
+    control="${tmpdir}/%r@%h-${pid}.sock";
 
-    "${ssh_command}" -o ControlMaster=auto -o ControlPath="${control}" -o PermitLocalCommand=yes -o LocalCommand="${rsync_command} ${rsync_options} ${filters} --rsh '${ssh_command} -o ControlPath=\"${control}\"' ./ '%r@%n:./' &" $argv;
+    "${ssh_command}" -o ControlMaster=auto -o ControlPath="${control}" -o PermitLocalCommand=yes -o LocalCommand="${rsync_command} ${rsync_options} ${filters} --rsh '${ssh_command} -o ControlPath=\"${control}\"' ./ '%r@%h:./' &" $argv;
   ;;
 esac;
