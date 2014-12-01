@@ -49,7 +49,7 @@ rpath() {
   rpath_name=${rpath_value##*/};
   rpath_dir=${rpath_value%/*};
   
-  if cd "${rpath_dir}"; then
+  if cd "${rpath_dir}" 2>/dev/null; then
     # We know the real path.
     eval $rpath_dst=${rpath_dir}/${rpath_name};
   else
@@ -98,7 +98,8 @@ randstr() {
 
   tr -cd "${upper}:${lower}:${number}" < /dev/urandom | \
   dd of="${tmpdir}/read.${pid}" count=1 bs=${randstr_len} 2>/dev/null
-  read randstr_val < "${tmpdir}/read.${pid}"
+  read randstr_val < "${tmpdir}/read.${pid}";
+  rm "${tmpdir}/read.${pid}";
 
   eval $randstr_var=$randstr_val;
   return 0;
@@ -160,8 +161,13 @@ sshagent_command=${sshagent_comand:='ssh-agent'};
 sshagent_socket=${sshagent_socket:=${tmpdir}/.ssh-agent.sock};
 sshadd_command=${sshadd_comand:=ssh-add};
 use_sshagent=${use_sshagent:-1};
-[ -z "${rsyncd_user}" ] && randstr rsyncd_user 8;
-[ -z "${rsyncd_pass}" ] && randstr rsyncd_pass 8;
+
+# If we have anything other than exactly 1 argument, then just call ssh as we
+# we don't know what arguments might be necessary to preform our rsync.
+if [ "${argc}" != '1' ]; then
+  exec "${ssh_command}" ${argv};
+  exit 0;
+fi;
 
 # Clean up our paths.
 for var in source_path tmpdir rsync_logfile include_file exclude_file \
@@ -174,13 +180,6 @@ if [ "${use_sshagent}" = '1' ]; then
   agent;
 fi;
 
-# If we have anything other than exactly 1 argument, then just call ssh as we
-# we don't know what arguments might be necessary to preform our rsync.
-if [ "${argc}" != '1' ]; then
-  exec "${ssh_command}" ${argv};
-  exit 0;
-fi;
-
 # Make sure our $config_base and $tmpdir exist. 
 for var in config_base tmpdir; do
   eval dir=\$$var;
@@ -190,6 +189,10 @@ for var in config_base tmpdir; do
     fi;
   fi;
 done;
+
+# We wait to set these as 'randstr' needs the tmpdir to exist .
+[ -z "${rsyncd_user}" ] && randstr rsyncd_user 8;
+[ -z "${rsyncd_pass}" ] && randstr rsyncd_pass 8;
 
 # Generate our system filters. Start by defining out per-directory filter file.
 filters="dir-merge ${rsync_dirfilter}${newline}";
@@ -264,7 +267,7 @@ __EOF__
     "${rsync_command}" --daemon --config="${rsyncd_config}" \
     --port="${rsyncd_port}";
 
-    "${ssh_command}" -R "127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}" -t $argv 'RSYNC_PASSWORD="'${rsyncd_pass}'" rsync '${rsync_options}' rsync://'${rsyncd_user}'@127.0.0.1:'${rsyncd_port}'/'${program}'/ "${source_path}/" & exec "${SHELL}" -l';
+    "${ssh_command}" -R "127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}" -t $argv 'RSYNC_PASSWORD="'${rsyncd_pass}'" rsync '${rsync_options}' rsync://'${rsyncd_user}'@127.0.0.1:'${rsyncd_port}'/'${program}'/ ./ & exec "${SHELL}" -l';
   ;;
 
   *)
@@ -288,6 +291,6 @@ __EOF__
     # Set up a host specific contol file.
     control="${tmpdir}/%r@%h-${pid}.sock";
 
-    "${ssh_command}" -o ControlMaster=auto -o ControlPath="${control}" -o PermitLocalCommand=yes -o LocalCommand="${rsync_command} ${rsync_options} ${filters} --rsh '${ssh_command} -o ControlPath=\"${control}\"' '${source_path}/' '%r@%h:./' &" $argv;
+    "${ssh_command}" -o ControlMaster=auto -o ControlPath="${control}" -o PermitLocalCommand=yes -o LocalCommand="${rsync_command} ${rsync_options} ${filters} --rsh '${ssh_command} -o ControlPath=\"${control}\"' '${source_path}/' '%r@%h:' &" $argv;
   ;;
 esac;
