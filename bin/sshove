@@ -55,8 +55,34 @@ rpath() {
   else
     # We couldn't determine the real path, so we use the shell expanded value
     # which is what the realpath binary does.
-    eval $rpath_dst=$prath_value;
+    eval $rpath_dst=$rpath_value;
   fi;
+}
+
+# 'where' is a more efficent 'which' function.  Testing shows it is about 40x
+# faster that spawning a subshell to call which.
+where() {
+  # The first argument is the name of the variable to update with the full path.
+  where_var=$1;
+
+  # The second argument is the name of the command to locate.  If it is not
+  # provided, use the current value of the variable we are going to update.
+  if [ -n "${2}" ]; then
+    where_cmd=${2};
+  else
+    eval where_cmd=\$$where_cmd;
+  fi;
+
+  IFS=":"; set -- ${PATH}; IFS=${IFS_default};
+  for where_dir in $*; do
+    where_file=${where_dir}/${where_cmd};
+    if [ -x "${where_file}" ]; then
+      eval $where_var=${where_file};
+      return 0;
+    fi;
+  done;
+
+  return 1;
 }
 
 # Create a generic function to generate a pseudo random string.  The default
@@ -64,16 +90,34 @@ rpath() {
 # manually listed out.  It also freaks out with many binary charaters, so we
 # limit the input with strings.
 randstr() {
-  strings < /dev/urandom | \
-  tr -cd "${upper}${lower}${number}" | \
-  dd count=1 bs=8 2>/dev/null;
-  echo;
+  # Name of the variable where we will store our random string.
+  randstr_var=${1};
+
+  # Length of the random string we need to generate.
+  randstr_len=${2};
+
+  # Our random string as we generate it.
+  randstr_val='';
+
+  while [ "${#randstr_val}" -lt "${randstr_len}" ]; do
+    read line < /dev/urandom;
+
+    # Append the usable characters to $randstr_val.
+    randstr_val=${randstr_val}${line//[^A-Za-z0-9]/};
+
+    # Trim down to $randstr_len characters.  If the string is not long enough,
+    # all charaters will be kept.
+    randstr_val=${randstr_val:0:${randstr_len}};
+  done;
+
+  eval $randstr_var=$randstr_val;
+  return 0;
 }
 
 # If we can't stat $script_path, it must have come from $PATH.  Let's find
 # where we live.
 if ! [ -x "${script}" ]; then
-  script_path=`which "${script}"`;
+  where script_path "${script}";
 else
   rpath script script_path;
 fi;
@@ -110,10 +154,10 @@ rsyncd_config=${rsyncd_config:-"${tmpdir}/rsyncd.conf"};
 rsyncd_passwd=${rsyncd_passwd:-"${tmpdir}/rsyncd.passwd"};
 rsyncd_pidfile=${rsyncd_pidfile:-"${tmpdir}/rsyncd.pid"};
 rsyncd_port=${rsyncd_port:-'1897'};
-rsyncd_user=${rsyncd_user:-`randstr`};
-rsyncd_pass=${rsyncd_pass:-`randstr`};
 rsync_filter=${rsync_filter:-"${tmpdir}/rsync.filter"};
 rsync_dirfilter=${rsync_dirfilter:-".${program}.filter"};
+[ -z "${rsyncd_user}" ] && randstr rsyncd_user 8;
+[ -z "${rsyncd_pass}" ] && randstr rsyncd_pass 8;
 
 # If we have anything other than exactly 1 argument, then just call ssh as we
 # we don't know what arguments might be necessary to preform our rsync.
