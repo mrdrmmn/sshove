@@ -265,9 +265,13 @@ __EOF__
 
     # Fire up rsync in daemon mode.
     "${rsync_command}" --daemon --config="${rsyncd_config}" \
-    --port="${rsyncd_port}";
+    --port="${rsyncd_port}" --no-detach &
+    rsyncd_pid="${!}";
 
     "${ssh_command}" -R "127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}" -t $argv 'RSYNC_PASSWORD="'${rsyncd_pass}'" rsync '${rsync_options}' rsync://'${rsyncd_user}'@127.0.0.1:'${rsyncd_port}'/'${program}'/ ./ & exec "${SHELL}" -l';
+
+    # Shut down the rsyncd process if it is still around...
+    kill "${rsyncd_pid}";
   ;;
 
   *)
