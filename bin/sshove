@@ -264,7 +264,7 @@ __EOF__
     "${rsync_command}" --daemon --config="${rsyncd_config}" \
     --port="${rsyncd_port}";
 
-    "${ssh_command}" -R "127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}" -t $argv 'RSYNC_PASSWORD="'${rsyncd_pass}'" rsync '${rsync_options}' rsync://'${rsyncd_user}'@127.0.0.1:'${rsyncd_port}'/'${program}'/ ./ & exec "${SHELL}" -l';
+    "${ssh_command}" -R "127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}" -t $argv 'RSYNC_PASSWORD="'${rsyncd_pass}'" rsync '${rsync_options}' rsync://'${rsyncd_user}'@127.0.0.1:'${rsyncd_port}'/'${program}'/ "${source_path}/" & exec "${SHELL}" -l';
   ;;
 
   *)
@@ -288,6 +288,6 @@ __EOF__
     # Set up a host specific contol file.
     control="${tmpdir}/%r@%h-${pid}.sock";
 
-    "${ssh_command}" -o ControlMaster=auto -o ControlPath="${control}" -o PermitLocalCommand=yes -o LocalCommand="${rsync_command} ${rsync_options} ${filters} --rsh '${ssh_command} -o ControlPath=\"${control}\"' ./ '%r@%h:./' &" $argv;
+    "${ssh_command}" -o ControlMaster=auto -o ControlPath="${control}" -o PermitLocalCommand=yes -o LocalCommand="${rsync_command} ${rsync_options} ${filters} --rsh '${ssh_command} -o ControlPath=\"${control}\"' '${source_path}/' '%r@%h:./' &" $argv;
   ;;
 esac;
