@@ -28,6 +28,13 @@ IFS="${IFS_default}";
 # on OSX if it is not set.
 LC_CTYPE=${LC_CTYPE:-'C'};
 
+debug() {
+  lvl="${1}"; shift;
+  if [ "${lvl}" -le "${debug}" ]; then
+    echo "${*}";
+  fi;
+}
+
 # rpath provides the same basic function as the realpath command, but with a
 # few benefits:
 #   realpath does not exist on some systems (Mac OSX).
@@ -115,6 +122,33 @@ agent() {
   fi;
 }
 
+# set_mode will make a guess at which mode should be used if $mode is not
+# already set.  This was done as a function to prevent the need for deeply
+# nested if/case statements.
+set_mode() {
+  # If a mode has already been set, then don't alter it.
+  [ -n "${mode}" ] && return 0;
+ 
+  # If we have anything other than exactly 1 argument, then just call ssh as we
+  # we don't know what arguments might be necessary to preform our rsync.
+  if [ "${argc}" != '1' ]; then
+    mode=none; return 0;
+  fi;
+  
+  # cygwin is a special case because multiplexing does not work.
+  case "`uname`" in
+    [Cc][Yy][Gg][Ww][Ii][Nn]*) mode=portforward; return 0;;
+  esac;
+
+  # Sun SSH does not support multiplexing
+  case "`${ssh_command} -V 2>&1`" in
+    [Ss][Uu][Nn]*) mode=portforward; return 0;;
+  esac;
+
+  # Use multiplex by default.
+  mode=multiplex; return 0;
+}
+
 # If we can't stat $script_path, it must have come from $PATH.  Let's find
 # where we live.
 if ! [ -x "${script}" ]; then
@@ -143,6 +177,8 @@ config_base=${config_base:-"~/.ssh/${program}"};
 rpath config_base;
 
 # Apply our defaults if a value was not found in the config file.
+mode=${SSHOVE_MODE:-${mode}};
+debug=${SSHOVE_DEBUG:-${debug:-0}};
 ssh_command=${ssh_command:-'ssh'};
 tmpdir=${tmpdir:-"${config_base}/tmp"};
 source_path=~;
@@ -163,12 +199,7 @@ sshagent_socket=${sshagent_socket:=${tmpdir}/.ssh-agent.sock};
 sshadd_command=${sshadd_comand:=ssh-add};
 use_sshagent=${use_sshagent:-1};
 
-# If we have anything other than exactly 1 argument, then just call ssh as we
-# we don't know what arguments might be necessary to preform our rsync.
-if [ "${argc}" != '1' ]; then
-  exec "${ssh_command}" ${argv};
-  exit 0;
-fi;
+debug 9 debug level: $debug;
 
 # Clean up our paths.
 for var in source_path tmpdir rsync_logfile include_file exclude_file \
@@ -210,22 +241,14 @@ done
 # Create our _filters files
 echo "${filters}" > "${rsync_filter}" 2>/dev/null;
 
-case "`uname`" in
-  # cygwin is a special case because multiplexing does not work.
-  [Cc][Yy][Gg][Ww][Ii][Nn]*)
-    mode=simple;
-  ;;
-esac;
-
-case "`${ssh_command} -V 2>&1`" in
-  # Sun SSH does not support multiplexing
-  [Ss][Uu][Nn]*)
-    mode=simple;
-  ;;
-esac;
-  
+set_mode;
+debug 9 mode: $mode;
 case "${mode}" in
-  [Ss][Ii][Mm][Pp][Ll][Ee])
+  none)
+    exec "${ssh_command}" ${argv};
+  ;;
+
+  portforward)
     # Start out by adding the rsync_filter file.
     filters='';
     if [ -r "${rsync_filter}" ]; then
@@ -269,7 +292,10 @@ __EOF__
     --port="${rsyncd_port}" --no-detach &
     rsyncd_pid="${!}";
 
-    "${ssh_command}" -R "127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}" -t $argv 'RSYNC_PASSWORD="'${rsyncd_pass}'" rsync '${rsync_options}' rsync://'${rsyncd_user}'@127.0.0.1:'${rsyncd_port}'/'${program}'/ ./ & exec "${SHELL}" -l';
+    # "${ssh_command}" -R "127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}" -t $argv 'RSYNC_PASSWORD="'${rsyncd_pass}'" rsync '${rsync_options}' rsync://'${rsyncd_user}'@127.0.0.1:'${rsyncd_port}'/'${program}'/ ./ & exec "${SHELL}" -l';
+    command="'${ssh_command}' -R '127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}' -t $argv 'RSYNC_PASSWORD=\"${rsyncd_pass}\" rsync ${rsync_options} \"rsync://${rsyncd_user}@127.0.0.1:${rsyncd_port}/${program}/\" ./ & exec \"${SHELL}\" -l'";
+    debug 1 command: "${command}";
+    eval ${command};
 
     # Shut down the rsyncd process if it is still around...
     {
@@ -280,7 +306,7 @@ __EOF__
     } >/dev/null 2>&1;
   ;;
 
-  *)
+  multiplex)
     # Start out by adding the rsync_filter file.
     filters='';
     if [ -r "${rsync_filter}" ]; then
@@ -302,5 +328,9 @@ __EOF__
     control="${tmpdir}/%r@%h-${pid}.sock";
 
     "${ssh_command}" -o ControlMaster=auto -o ControlPath="${control}" -o PermitLocalCommand=yes -o LocalCommand="${rsync_command} ${rsync_options} ${filters} --rsh '${ssh_command} -o ControlPath=\"${control}\"' '${source_path}/' '%r@%h:' &" $argv;
+  ;;
+
+  *)
+    echo "'${mode}' is not a valid mode.";
   ;;
 esac;
