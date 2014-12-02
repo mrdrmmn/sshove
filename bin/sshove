@@ -151,6 +151,7 @@ rsync_logfile=${rsync_logfile:-"${tmpdir}/rsync.log"};
 rsync_options=${rsync_options:-'-auq'};
 include_file=${include_file:-"${config_base}/include"};
 exclude_file=${exclude_file:-"${config_base}/exclude"};
+exclude_default=${rsync_exclude_default:-'/*'};
 rsyncd_config=${rsyncd_config:-"${tmpdir}/rsyncd.conf"};
 rsyncd_passwd=${rsyncd_passwd:-"${tmpdir}/rsyncd.passwd"};
 rsyncd_pidfile=${rsyncd_pidfile:-"${tmpdir}/rsyncd.pid"};
@@ -240,7 +241,7 @@ case "${mode}" in
     fi;   
     
     # Finally, add in a default exclude.
-    filters="${filters}${newline}  exclude = /*";
+    filters="${filters}${newline}  exclude = ${exclude_default}";
     
     # Create our rsyncd configuration/
     cat << __EOF__ > "${rsyncd_config}";
@@ -271,7 +272,12 @@ __EOF__
     "${ssh_command}" -R "127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}" -t $argv 'RSYNC_PASSWORD="'${rsyncd_pass}'" rsync '${rsync_options}' rsync://'${rsyncd_user}'@127.0.0.1:'${rsyncd_port}'/'${program}'/ ./ & exec "${SHELL}" -l';
 
     # Shut down the rsyncd process if it is still around...
-    kill "${rsyncd_pid}";
+    {
+      read old_pid < "${rsyncd_pidfile}"; 
+      if [ "${old_pid}" == "${rsyncd_pid}" ]; then
+        kill "${rsyncd_pid}";
+      fi;
+    } >/dev/null 2>&1;
   ;;
 
   *)
@@ -290,7 +296,7 @@ __EOF__
     fi;   
     
     # Finally, add in a default exclude.
-    filters="${filters} --exclude='/*'";
+    filters="${filters} --exclude='${exclude_default}'";
 
     # Set up a host specific contol file.
     control="${tmpdir}/%r@%h-${pid}.sock";
