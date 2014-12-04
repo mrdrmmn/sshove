@@ -243,7 +243,7 @@ for name in donefile tmpdir rsyncd_pidfile rsyncd_config rsyncd_passwd rsync_fil
   filters="${filters}- ${value}${newline}";
 done
 
-# Create our _filters files
+# Create our filters files
 echo "${filters}" > "${rsync_filter}" 2>/dev/null;
 
 set_mode;
@@ -314,24 +314,27 @@ __EOF__
     # Start out by adding the rsync_filter file.
     filters='';
     if [ -r "${rsync_filter}" ]; then
-      filters="--filter='. ${rsync_filter}'";
+      filters="--filter=\". ${rsync_filter}\"";
     fi;
 
     # Now we add in our customer include and exclude files if they are defined.
     if [ -r "${include_file}" ]; then
-      filters="${filters} --include-from='${include_file}'";
+      filters="${filters} --include-from=\"${include_file}\"";
     fi;
     if [ -r "${exclude_file}" ]; then
-      filters="${filters} --exclude-from='${exclude_file}'";
+      filters="${filters} --exclude-from=\"${exclude_file}\"";
     fi;   
     
     # Finally, add in a default exclude.
-    filters="${filters} --exclude='${exclude_default}'";
+    filters="${filters} --exclude=\"${exclude_default}\"";
 
     # Set up a host specific contol file.
     control="${tmpdir}/%r@%h-${pid}.sock";
 
-    "${ssh_command}" -o ControlMaster=auto -o ControlPath="${control}" -o PermitLocalCommand=yes -o LocalCommand="${rsync_command} ${rsync_options} ${filters} --rsh '${ssh_command} -o ControlPath=\"${control}\"' '${source_path}/' '%r@%h:' &" $argv;
+    ssh_control_args='-o ControlMaster=auto -o ControlPath="'${control}'"';
+    command="'${ssh_command}' ${ssh_control_args} -o PermitLocalCommand=yes -o LocalCommand='\"${rsync_command}\" ${rsync_options} ${filters} --rsh=\"\\\"${ssh_command}\\\" -o ControlPath=\\\"${control}\\\"\" \"${source_path}/\" \"%r@%h:\" && \"${ssh_command}\" ${ssh_control_args} \"%r@%h\" touch \"${donefile}\" &' ${argv}";
+    debug 1 command: "${command}";
+    eval ${command};
   ;;
 
   *)
