@@ -116,8 +116,9 @@ agent() {
   SSH_AUTH_SOCK=${SSH_AUTH_SOCK:=${sshagent_socket}};
   export SSH_AUTH_SOCK;
 
-  ${sshagent_command} -a "${sshagent_socket}" >/dev/null 2>&1;
   if ! "${sshadd_command}" -l >/dev/null 2>&1; then
+    rm "${sshagent_socket}" >/dev/null 2>&1;
+    ${sshagent_command} -a "${sshagent_socket}" >/dev/null 2>&1;
     "${sshadd_command}";
   fi;
 }
@@ -181,6 +182,7 @@ mode=${SSHOVE_MODE:-${mode}};
 debug=${SSHOVE_DEBUG:-${debug:-0}};
 ssh_command=${ssh_command:-'ssh'};
 tmpdir=${tmpdir:-"${config_base}/tmp"};
+donefile=${donefile:-'.sshove-done'};
 source_path=~;
 rsync_command=${rsync_command:-'rsync'};
 rsync_logfile=${rsync_logfile:-"${tmpdir}/rsync.log"};
@@ -229,8 +231,11 @@ done;
 # Generate our system filters. Start by defining out per-directory filter file.
 filters="dir-merge ${rsync_dirfilter}${newline}";
 
+# Figure out the relative path to the donefile.
+donefile="${donefile#source_path}";
+
 # We always exclude our tmp directory and files.
-for name in tmpdir rsyncd_pidfile rsyncd_config rsyncd_passwd rsync_filter; do
+for name in donefile tmpdir rsyncd_pidfile rsyncd_config rsyncd_passwd rsync_filter; do
   # Strip off our prefix.
   eval value=\$$name; value="${value#${source_path}}";
 
@@ -292,8 +297,7 @@ __EOF__
     --port="${rsyncd_port}" --no-detach &
     rsyncd_pid="${!}";
 
-    # "${ssh_command}" -R "127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}" -t $argv 'RSYNC_PASSWORD="'${rsyncd_pass}'" rsync '${rsync_options}' rsync://'${rsyncd_user}'@127.0.0.1:'${rsyncd_port}'/'${program}'/ ./ & exec "${SHELL}" -l';
-    command="'${ssh_command}' -R '127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}' -t $argv 'RSYNC_PASSWORD=\"${rsyncd_pass}\" rsync ${rsync_options} \"rsync://${rsyncd_user}@127.0.0.1:${rsyncd_port}/${program}/\" ./ & exec \"${SHELL}\" -l'";
+    command="'${ssh_command}' -R '127.0.0.1:${rsyncd_port}:127.0.0.1:${rsyncd_port}' -t $argv 'RSYNC_PASSWORD=\"${rsyncd_pass}\" rsync ${rsync_options} \"rsync://${rsyncd_user}@127.0.0.1:${rsyncd_port}/${program}/\" ./ && touch \"${donefile}\" & exec \"\${SHELL}\" -l'" ;
     debug 1 command: "${command}";
     eval ${command};
 
